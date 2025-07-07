@@ -1,0 +1,142 @@
+Some Queries :
+ 
+-- 1. Most Liked Post(s)
+
+SELECT Post_ID, COUNT(*) AS Like_Count
+FROM User_likes_post
+GROUP BY Post_ID
+ORDER BY Like_Count DESC
+LIMIT 1;
+
+-- 2. Users Who Never Liked or Commented
+SELECT u.User_ID, u.Name
+FROM Users u
+WHERE u.User_ID NOT IN (SELECT User_ID FROM User_likes_post)
+  AND u.User_ID NOT IN (SELECT User_ID FROM User_comments_on_post);
+
+-- 3. Mutual Followers
+SELECT 
+    LEAST(f1.Follower_ID, f1.Followee_ID) AS User1,
+    GREATEST(f1.Follower_ID, f1.Followee_ID) AS User2
+FROM Follow f1
+JOIN Follow f2 ON f1.Follower_ID = f2.Followee_ID AND f1.Followee_ID = f2.Follower_ID
+WHERE f1.Follower_ID < f1.Followee_ID; 
+
+-- 4. Top 3 Users With Most Followers
+SELECT u.User_ID, u.Name, COUNT(f.Follower_ID) AS Follower_Count
+FROM Users u
+JOIN Follow f ON u.User_ID = f.Followee_ID
+GROUP BY u.User_ID, u.Name
+ORDER BY Follower_Count DESC
+LIMIT 3;
+
+-- 5. Most Active Users by Engagement (likes + comments + shares)
+SELECT 
+    u.User_ID,
+    COALESCE(lc.total_likes, 0) + 
+    COALESCE(cc.total_comments, 0) + 
+    COALESCE(sc.total_shares, 0) AS Total_Engagements
+FROM Users u
+LEFT JOIN (
+    SELECT User_ID, COUNT(*) AS total_likes
+    FROM User_likes_post
+    GROUP BY User_ID
+) lc ON u.User_ID = lc.User_ID
+LEFT JOIN (
+    SELECT User_ID, COUNT(*) AS total_comments
+    FROM User_comments_on_post
+    GROUP BY User_ID
+) cc ON u.User_ID = cc.User_ID
+LEFT JOIN (
+    SELECT User_ID, COUNT(*) AS total_shares
+    FROM User_shares_post
+    GROUP BY User_ID
+) sc ON u.User_ID = sc.User_ID
+ORDER BY Total_Engagements DESC;
+
+-- 6. Users With Most Saved Posts
+SELECT u.User_ID, u.Name, COUNT(*) AS Save_Count
+FROM Users u
+JOIN User_saves_post usp ON u.User_ID = usp.User_ID
+GROUP BY u.User_ID, u.Name
+ORDER BY Save_Count DESC
+LIMIT 3;
+
+-- 7. Users Whose Posts Are Reported the Most
+SELECT u.User_ID, u.Name, COUNT(*) AS Total_Reports
+FROM Users u
+JOIN User_creates_Post cp ON u.User_ID = cp.User_ID
+JOIN User_reports_post rp ON cp.Post_ID = rp.Post_ID
+GROUP BY u.User_ID, u.Name
+ORDER BY Total_Reports DESC
+LIMIT 3;
+
+-- 8. Users with Longest Bio
+SELECT User_ID, Name, LENGTH(Bio) AS Bio_Length
+FROM Users
+ORDER BY Bio_Length DESC
+LIMIT 1;
+
+-- 9. Users Who Shared but Never Liked Any Post
+SELECT DISTINCT u.User_ID, u.Name
+FROM Users u
+WHERE u.User_ID IN (SELECT User_ID FROM User_shares_post)
+  AND u.User_ID NOT IN (SELECT User_ID FROM User_likes_post);
+
+-- 10. Users with Posts That Were Never Engaged With
+SELECT DISTINCT u.User_ID, u.Name
+FROM Users u
+JOIN User_creates_Post cp ON u.User_ID = cp.User_ID
+WHERE NOT EXISTS (
+    SELECT 1 
+    FROM User_engages_with_posts ep
+    WHERE ep.Post_ID = cp.Post_ID
+);
+
+-- 11. Users Who Engaged with All Their Own Posts
+SELECT DISTINCT u.User_ID, u.Name
+FROM Users u
+WHERE NOT EXISTS (
+    SELECT 1 FROM User_creates_Post cp
+    WHERE cp.User_ID = u.User_ID
+      AND NOT EXISTS (
+        SELECT 1 FROM User_engages_with_posts ep
+        WHERE ep.User_ID = u.User_ID AND ep.Post_ID = cp.Post_ID
+      )
+);
+
+-- 12. Most Replied Comments
+SELECT c.Comment_ID, COUNT(r.Reply_comment_ID) AS Reply_Count
+FROM Comments c
+JOIN User_replies_on_comments r ON c.Comment_ID = r.Main_comment_ID
+GROUP BY c.Comment_ID
+ORDER BY Reply_Count DESC
+LIMIT 1;
+
+--13. Users Whose Posts Have Attracted the Most Unique Users
+SELECT u.User_ID, u.Name, COUNT(DISTINCT e.User_ID) AS Unique_Users_Engaged
+FROM Users u
+JOIN User_creates_Post cp ON u.User_ID = cp.User_ID
+JOIN User_engages_with_posts e ON cp.Post_ID = e.Post_ID
+WHERE e.User_ID <> u.User_ID
+GROUP BY u.User_ID, u.Name
+ORDER BY Unique_Users_Engaged DESC
+LIMIT 5;
+
+--14  Users with More Than 3 Different Types of Engagements on Any Post
+SELECT u.User_ID, u.Name, COUNT(DISTINCT engagement_type) AS Types_of_Engagement
+FROM (
+    SELECT User_ID, Post_ID, 'like' AS engagement_type FROM User_likes_post
+    UNION
+    SELECT User_ID, Post_ID, 'share' FROM User_shares_post
+    UNION
+    SELECT User_ID, Post_ID, 'comment' FROM User_comments_on_post
+    UNION
+    SELECT User_ID, Post_ID, 'save' FROM User_saves_post
+    UNION
+    SELECT User_ID, Post_ID, 'report' FROM User_reports_post
+) e
+JOIN Users u ON u.User_ID = e.User_ID
+GROUP BY u.User_ID, u.Name, e.Post_ID
+HAVING COUNT(DISTINCT engagement_type) >= 4;
+
